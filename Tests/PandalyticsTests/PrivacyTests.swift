@@ -20,8 +20,7 @@ struct PrivacyTests {
             locale: "en_US",
             language: "en",
             region: "America/New_York",
-            userHash: "abc123hash",
-            isDev: false,
+            installationHash: "abc123hash",
             metadata: nil
         )
 
@@ -50,8 +49,7 @@ struct PrivacyTests {
             locale: "de_DE",
             language: "de",
             region: "Europe/Berlin",
-            userHash: "hashed_user",
-            isDev: false,
+            installationHash: "hashed_user",
             metadata: ["color_scheme": "dark"]
         )
 
@@ -63,7 +61,7 @@ struct PrivacyTests {
         #expect(json.contains("\"app_id\""))
         #expect(json.contains("\"signals\""))
         #expect(json.contains("\"signal_type\""))
-        #expect(json.contains("\"user_hash\""))
+        #expect(json.contains("\"installation_hash\""))
         #expect(json.contains("\"build_number\""))
         #expect(json.contains("\"device_model\""))
         #expect(json.contains("\"device_type\""))
@@ -71,7 +69,6 @@ struct PrivacyTests {
         #expect(json.contains("\"language\""))
         #expect(json.contains("\"metadata\""))
         #expect(json.contains("\"color_scheme\""))
-        #expect(json.contains("\"is_dev\""))
 
         // Verify no PII field names
         #expect(!json.contains("\"ip\""))
@@ -118,8 +115,7 @@ struct PrivacyTests {
             locale: "en_US",
             language: "en",
             region: TimeZone.current.identifier,
-            userHash: "hash",
-            isDev: false,
+            installationHash: "hash",
             metadata: nil
         )
 

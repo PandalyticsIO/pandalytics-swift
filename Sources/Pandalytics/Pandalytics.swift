@@ -29,7 +29,7 @@ public actor Pandalytics {
     // MARK: - Message types
 
     private enum SDKMessage: Sendable {
-        case configure(appId: String, isDev: Bool?)
+        case configure(appId: String, ingestionKey: String, isDev: Bool?)
         case signal(type: String, screenName: String?, metadata: [String: String]?)
         case trackConfig([String: String])
         case flush
@@ -75,9 +75,18 @@ public actor Pandalytics {
     /// Configure the SDK. Call this once at app launch.
     /// - Parameters:
     ///   - appId: Your app's unique ID from the Pandalytics dashboard.
+    ///   - ingestionKey: Your app's ingestion key from the Pandalytics dashboard
+    ///     (starts with `panda_sk_`). Required — signals won't be delivered
+    ///     without a valid key.
     ///   - isDev: Override dev detection. If nil, uses #if DEBUG (defaults to true for debug builds).
-    nonisolated public static func configure(appId: String, isDev: Bool? = nil) {
-        shared.continuation.yield(.configure(appId: appId, isDev: isDev))
+    nonisolated public static func configure(
+        appId: String,
+        ingestionKey: String,
+        isDev: Bool? = nil
+    ) {
+        shared.continuation.yield(
+            .configure(appId: appId, ingestionKey: ingestionKey, isDev: isDev)
+        )
     }
 
     /// Send a signal (custom event).
@@ -105,8 +114,8 @@ public actor Pandalytics {
     private func processMessages(_ stream: AsyncStream<SDKMessage>) async {
         for await message in stream {
             switch message {
-            case .configure(let appId, let isDev):
-                await handleConfigure(appId: appId, isDev: isDev)
+            case .configure(let appId, let ingestionKey, let isDev):
+                await handleConfigure(appId: appId, ingestionKey: ingestionKey, isDev: isDev)
             case .signal(let type, let screenName, let metadata):
                 await handleSignal(type: type, screenName: screenName, metadata: metadata)
             case .trackConfig(let config):
@@ -119,7 +128,7 @@ public actor Pandalytics {
 
     // MARK: - Message handlers
 
-    private func handleConfigure(appId: String, isDev: Bool?) async {
+    private func handleConfigure(appId: String, ingestionKey: String, isDev: Bool?) async {
         guard !hasConfigured else {
             #if DEBUG
             print("[Pandalytics] SDK already configured. Ignoring duplicate configure() call.")
@@ -130,7 +139,10 @@ public actor Pandalytics {
         self.appId = appId
         if let isDev { self.isDev = isDev }
 
-        let transport = URLSessionTransport(isDev: self.isDev)
+        let transport = PandalyticsTransport(
+            ingestionKey: ingestionKey,
+            isDev: self.isDev
+        )
         await signalBuffer.configure(appId: appId, transport: transport)
         await signalBuffer.startFlushing()
         registerLifecycleObservers()
@@ -168,8 +180,7 @@ public actor Pandalytics {
             locale: Locale.current.identifier,
             language: Self.language,
             region: TimeZone.current.identifier,
-            userHash: await sessionManager.installationHash(),
-            isDev: isDev,
+            installationHash: await sessionManager.installationHash(),
             metadata: allMetadata.isEmpty ? nil : allMetadata
         )
 

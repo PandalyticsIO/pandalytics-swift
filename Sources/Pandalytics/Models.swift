@@ -1,6 +1,7 @@
 import Foundation
 
 /// A single analytics signal. Contains no personal data.
+/// Tracks app installations, not users.
 struct Signal: Codable, Sendable {
     let signalType: String
     let timestamp: String
@@ -14,8 +15,7 @@ struct Signal: Codable, Sendable {
     let locale: String
     let language: String                // ISO 639-1 e.g. "en", "de"
     let region: String                  // IANA timezone identifier
-    let userHash: String                // SHA-256 of persistent installation UUID
-    let isDev: Bool                     // true for debug/simulator builds
+    let installationHash: String        // SHA-256 of persistent installation UUID
     let metadata: [String: String]?     // color_scheme, accessibility, custom
 
     enum CodingKeys: String, CodingKey {
@@ -31,8 +31,7 @@ struct Signal: Codable, Sendable {
         case locale
         case language
         case region
-        case userHash = "user_hash"
-        case isDev = "is_dev"
+        case installationHash = "installation_hash"
         case metadata
     }
 }

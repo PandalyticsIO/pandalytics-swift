@@ -37,8 +37,7 @@ struct SignalBufferTests {
             locale: "en_US",
             language: "en",
             region: "America/New_York",
-            userHash: "abc123",
-            isDev: false,
+            installationHash: "abc123",
             metadata: ["color_scheme": "dark"]
         )
 
@@ -57,15 +56,14 @@ struct SignalBufferTests {
         #expect(signals[0]["device_type"] as? String == "phone")
         #expect(signals[0]["locale"] as? String == "en_US")
         #expect(signals[0]["language"] as? String == "en")
-        #expect(signals[0]["user_hash"] as? String == "abc123")
+        #expect(signals[0]["installation_hash"] as? String == "abc123")
         #expect(signals[0]["build_number"] as? String == "42")
-        #expect(signals[0]["is_dev"] as? Bool == false)
 
         let meta = signals[0]["metadata"] as? [String: String]
         #expect(meta?["color_scheme"] == "dark")
     }
 
-    @Test("Signal encodes device_type, language, and is_dev")
+    @Test("Signal encodes device_type, language, and installation_hash")
     func newFieldsEncoding() throws {
         let signal = Signal(
             signalType: "test",
@@ -80,8 +78,7 @@ struct SignalBufferTests {
             locale: "de_DE",
             language: "de",
             region: "Europe/Berlin",
-            userHash: "hash",
-            isDev: true,
+            installationHash: "hash",
             metadata: nil
         )
 
@@ -92,7 +89,7 @@ struct SignalBufferTests {
         #expect(json.contains("\"tablet\""))
         #expect(json.contains("\"language\""))
         #expect(json.contains("\"de\""))
-        #expect(json.contains("\"is_dev\""))
-        #expect(json.contains("true"))
+        #expect(json.contains("\"installation_hash\""))
+        #expect(json.contains("\"hash\""))
     }
 }
