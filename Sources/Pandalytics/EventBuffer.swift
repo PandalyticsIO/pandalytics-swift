@@ -10,6 +10,7 @@ import Foundation
 actor SignalBuffer {
 
     private var signals: [Signal] = []
+    private var pendingSignals: [Signal] = []
     private var appId: String?
     private var transport: (any SignalTransport)?
     private var isSending = false
@@ -38,10 +39,15 @@ actor SignalBuffer {
     /// Add a signal to the buffer. Persisted to disk immediately.
     /// Works before `configure()` — signals accumulate until a transport is available.
     func add(_ signal: Signal) {
-        signals.append(signal)
-        enforceCapacity()
+        if isSending {
+            pendingSignals.append(signal)
+            enforcePendingCapacity()
+        } else {
+            signals.append(signal)
+            enforceCapacity()
+        }
         saveToDisk()
-        if signals.count >= flushThreshold {
+        if !isSending && signals.count >= flushThreshold {
             Task { await flush() }
         }
     }
@@ -72,11 +78,11 @@ actor SignalBuffer {
 
         switch result {
         case .success:
-            signals = Array(signals.dropFirst(batch.count))
-            saveToDisk()
+            signals = pendingSignals
+            pendingSignals.removeAll()
         case .rateLimited:
-            signals = Array(signals.dropFirst(batch.count))
-            saveToDisk()
+            signals = pendingSignals
+            pendingSignals.removeAll()
             #if DEBUG
             print("[Pandalytics] Rate limited or over quota. Signals dropped.")
             #endif
@@ -84,18 +90,28 @@ actor SignalBuffer {
             #if DEBUG
             print("[Pandalytics] Server error. Will retry.")
             #endif
+            signals = batch + pendingSignals
+            pendingSignals.removeAll()
+            enforceCapacity()
         case .networkError:
             #if DEBUG
             print("[Pandalytics] Network error. Will retry.")
             #endif
+            signals = batch + pendingSignals
+            pendingSignals.removeAll()
+            enforceCapacity()
         }
 
         isSending = false
+        saveToDisk()
+        if signals.count >= flushThreshold {
+            Task { await flush() }
+        }
     }
 
     /// Returns the number of buffered signals (for testing).
     var bufferedCount: Int {
-        signals.count
+        signals.count + pendingSignals.count
     }
 
     // MARK: - Persistence
@@ -117,12 +133,13 @@ actor SignalBuffer {
 
     private func saveToDisk() {
         guard let url = persistenceURL() else { return }
-        if signals.isEmpty {
+        let bufferedSignals = persistedSignals
+        if bufferedSignals.isEmpty {
             try? FileManager.default.removeItem(at: url)
             return
         }
         do {
-            let data = try JSONEncoder().encode(signals)
+            let data = try JSONEncoder().encode(bufferedSignals)
             try data.write(to: url, options: .atomic)
         } catch {
             #if DEBUG
@@ -141,6 +158,7 @@ actor SignalBuffer {
             // already contains any signals added before configure() in this session.
             // Replace the in-memory array to avoid duplication.
             signals = loaded
+            pendingSignals.removeAll()
             enforceCapacity()
         } catch {
             #if DEBUG
@@ -154,5 +172,15 @@ actor SignalBuffer {
         if signals.count > maxSignalCap {
             signals = Array(signals.suffix(maxSignalCap))
         }
+    }
+
+    private func enforcePendingCapacity() {
+        if pendingSignals.count > maxSignalCap {
+            pendingSignals = Array(pendingSignals.suffix(maxSignalCap))
+        }
+    }
+
+    private var persistedSignals: [Signal] {
+        signals + pendingSignals
     }
 }

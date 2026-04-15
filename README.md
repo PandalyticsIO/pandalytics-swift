@@ -4,10 +4,10 @@ Privacy-focused analytics for Apple platforms.
 
 ## Supported Platforms
 
-- iOS 15+
-- macOS 12+
-- tvOS 15+
-- watchOS 8+
+- iOS 16+
+- macOS 13+
+- tvOS 16+
+- watchOS 9+
 
 ## Installation
 
@@ -40,6 +40,11 @@ Pandalytics.configure(
 Pandalytics.signal("purchase_completed")
 Pandalytics.signal("item_added", metadata: ["category": "groceries"])
 
+// Critical signals wait until the event is stored locally on disk.
+// They do not wait for network delivery.
+await Pandalytics.signalCritical("purchase_failed", metadata: ["reason": "timeout"])
+await Pandalytics.captureError("DatabaseError")
+
 // Track screens (SwiftUI)
 struct HomeView: View {
     var body: some View {
@@ -66,9 +71,16 @@ struct HomeView: View {
 - Screen name (via `.trackScreen()`)
 - Custom signal types and metadata
 
+## Reliability model
+
+- Normal signals are nonblocking and are queued through a single async stream.
+- Signals are persisted locally before delivery, then retried if the network or server is unavailable.
+- Lifecycle signals are mirrored into a small local recovery store before they enter the async stream. If the app is suspended or exits before the signal buffer writes them, the SDK recovers them on the next launch.
+- `signalCritical(...)` and `captureError(...)` are opt-in async APIs for cases where local durability matters more than returning immediately. They wait for local disk persistence, not server delivery.
+- If a foreground run ends without a clean shutdown marker, the next launch emits `previous_run_ended_unexpectedly` with recovery metadata. Backgrounded runs are not treated as unexpected exits.
+
 ## Privacy model
 
 - **User identity:** Random UUID generated on first launch, stored in UserDefaults, SHA-256 hashed before sending. Deleted when the app is uninstalled. Enables retention tracking without identifying anyone.
-- **Session grouping:** Daily-rotating hash of (OS version + app version + timezone). Changes every day — no cross-day session tracking.
 - **No IPs, no IDFA/IDFV, no cookies, no user agent strings.**
 - **Device model** (e.g. "iPhone15,2") is not personal data — millions of devices share the same model.

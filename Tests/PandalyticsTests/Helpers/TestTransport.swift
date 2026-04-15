@@ -92,3 +92,42 @@ final class SlowTransport: SignalTransport, @unchecked Sendable {
         return .success
     }
 }
+
+/// Records the batch, then waits until the test releases it.
+final class BlockingTransport: SignalTransport, @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var _batches: [SignalBatch] = []
+    private var remainingBlocks = 1
+
+    var batches: [SignalBatch] {
+        lock.withLock { _batches }
+    }
+
+    var totalSignalsSent: Int {
+        batches.flatMap(\.signals).count
+    }
+
+    func send(batch: SignalBatch) async -> TransportResult {
+        let shouldBlock = lock.withLock {
+            _batches.append(batch)
+            guard remainingBlocks > 0 else { return false }
+            remainingBlocks -= 1
+            return true
+        }
+        guard shouldBlock else { return .success }
+        await withCheckedContinuation { continuation in
+            lock.withLock { self.continuation = continuation }
+        }
+        return .success
+    }
+
+    func release() {
+        let continuation = lock.withLock {
+            let continuation = self.continuation
+            self.continuation = nil
+            return continuation
+        }
+        continuation?.resume()
+    }
+}

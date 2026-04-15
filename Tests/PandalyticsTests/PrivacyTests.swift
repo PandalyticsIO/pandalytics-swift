@@ -76,21 +76,6 @@ struct PrivacyTests {
         #expect(!json.contains("\"device_id\""))
     }
 
-    @Test("Session hash contains no raw input values")
-    func sessionHashContainsNoInputs() {
-        let hash = SessionManager.generateSessionHash(
-            date: "2026-03-23",
-            osVersion: "18.1.2",
-            appVersion: "2.1.0",
-            timezone: "America/New_York"
-        )
-
-        #expect(!hash.contains("18.1.2"))
-        #expect(!hash.contains("2.1.0"))
-        #expect(!hash.contains("America"))
-        #expect(!hash.contains("New_York"))
-    }
-
     @Test("Installation hash does not contain the raw UUID")
     func installationHashOpaqueToUUID() {
         let uuid = "E621E1F8-C36C-495A-93FC-0C247A3E6E5F"

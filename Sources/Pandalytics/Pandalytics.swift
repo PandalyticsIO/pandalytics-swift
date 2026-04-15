@@ -20,6 +20,7 @@ public actor Pandalytics {
     private var appId: String?
     private var isDev: Bool
     private let signalBuffer: SignalBuffer
+    private let runStateStore: RunStateStore
     let sessionManager: SessionManager
     private var lastConfigHash: String?
     private var hasConfigured = false
@@ -28,9 +29,22 @@ public actor Pandalytics {
 
     // MARK: - Message types
 
+    private enum LifecycleBackgroundTask: Sendable {
+        case none
+        #if os(iOS)
+        case uiApplication(UIBackgroundTaskIdentifier)
+        #endif
+    }
+
     private enum SDKMessage: Sendable {
         case configure(appId: String, ingestionKey: String, isDev: Bool?)
         case signal(type: String, screenName: String?, metadata: [String: String]?)
+        case lifecycleSignal(
+            type: String,
+            flush: Bool,
+            pendingEventID: String?,
+            backgroundTask: LifecycleBackgroundTask
+        )
         case trackConfig([String: String])
         case flush
     }
@@ -58,6 +72,7 @@ public actor Pandalytics {
 
     private init() {
         self.signalBuffer = SignalBuffer()
+        self.runStateStore = RunStateStore()
         self.sessionManager = SessionManager()
         #if DEBUG
         self.isDev = true
@@ -97,6 +112,24 @@ public actor Pandalytics {
         shared.continuation.yield(.signal(type: type, screenName: nil, metadata: metadata))
     }
 
+    /// Send a critical signal and wait until it is durably stored on disk.
+    ///
+    /// This does not wait for network delivery. It guarantees local persistence so
+    /// the SDK can retry later if the server is down or the process exits.
+    public static func signalCritical(_ type: String, metadata: [String: String]? = nil) async {
+        await shared.handleCriticalSignal(type: type, screenName: nil, metadata: metadata)
+    }
+
+    /// Record an error as a critical signal and wait until it is durably stored on disk.
+    ///
+    /// The error name is caller-provided to avoid collecting exception objects or
+    /// platform-specific personal data accidentally.
+    public static func captureError(_ name: String, metadata: [String: String]? = nil) async {
+        var allMetadata = metadata ?? [:]
+        allMetadata["error_name"] = name
+        await shared.handleCriticalSignal(type: "error", screenName: nil, metadata: allMetadata)
+    }
+
     /// Track a screen view.
     /// - Parameter name: The screen name (e.g., "HomeScreen", "SettingsScreen").
     nonisolated public static func trackScreen(_ name: String) {
@@ -118,6 +151,9 @@ public actor Pandalytics {
                 await handleConfigure(appId: appId, ingestionKey: ingestionKey, isDev: isDev)
             case .signal(let type, let screenName, let metadata):
                 await handleSignal(type: type, screenName: screenName, metadata: metadata)
+            case .lifecycleSignal(let type, let flush, let pendingEventID, let backgroundTask):
+                await handleLifecycleSignal(type: type, flush: flush, pendingEventID: pendingEventID)
+                await Self.endBackgroundTask(backgroundTask)
             case .trackConfig(let config):
                 await handleTrackConfig(config)
             case .flush:
@@ -143,18 +179,55 @@ public actor Pandalytics {
             ingestionKey: ingestionKey,
             isDev: self.isDev
         )
+        let recovery = runStateStore.startRun()
         await signalBuffer.configure(appId: appId, transport: transport)
+        await handleRecovery(recovery)
         await signalBuffer.startFlushing()
         registerLifecycleObservers()
 
         hasConfigured = true
 
-        await handleSignal(type: "app_open", screenName: nil, metadata: nil)
+        _ = await handleSignal(type: "app_open", screenName: nil, metadata: nil)
     }
 
-    private func handleSignal(type: String, screenName: String?, metadata: [String: String]?) async {
+    @discardableResult
+    private func handleSignal(type: String, screenName: String?, metadata: [String: String]?) async -> Bool {
+        guard Self.isTrackingEnabled else { return false }
+
+        let signal = await makeSignal(
+            type: type,
+            screenName: screenName,
+            metadata: metadata,
+            timestamp: ISO8601DateFormatter().string(from: Date())
+        )
+        await signalBuffer.add(signal)
+        return true
+    }
+
+    private func handleCriticalSignal(type: String, screenName: String?, metadata: [String: String]?) async {
         guard Self.isTrackingEnabled else { return }
 
+        let pendingEvent = runStateStore.recordCriticalSignalQueued(
+            type: type,
+            screenName: screenName,
+            metadata: metadata
+        )
+        let signal = await makeSignal(
+            type: pendingEvent.type,
+            screenName: pendingEvent.screenName,
+            metadata: pendingEvent.metadata,
+            timestamp: pendingEvent.timestamp
+        )
+        await signalBuffer.add(signal)
+        runStateStore.completePendingEvent(id: pendingEvent.id)
+    }
+
+    private func makeSignal(
+        type: String,
+        screenName: String?,
+        metadata: [String: String]?,
+        timestamp: String
+    ) async -> Signal {
         var allMetadata = metadata ?? [:]
         let defaults = await Self.collectDefaultMetadata()
         for (key, value) in defaults {
@@ -169,14 +242,14 @@ public actor Pandalytics {
 
         let signal = Signal(
             signalType: type,
-            timestamp: ISO8601DateFormatter().string(from: Date()),
+            timestamp: timestamp,
             screenName: screenName,
             appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
             buildNumber: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown",
             osName: Self.osName,
             osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
             deviceModel: Self.deviceModel,
-            deviceType: Self.deviceType,
+            deviceType: await Self.deviceType,
             locale: Locale.current.identifier,
             language: Self.language,
             region: TimeZone.current.identifier,
@@ -184,7 +257,25 @@ public actor Pandalytics {
             metadata: allMetadata.isEmpty ? nil : allMetadata
         )
 
-        await signalBuffer.add(signal)
+        return signal
+    }
+
+    private func handleRecovery(_ recovery: RunStateStore.Recovery?) async {
+        guard let recovery else { return }
+        guard Self.isTrackingEnabled else {
+            runStateStore.completePendingEvents(ids: recovery.pendingEvents.map(\.id))
+            return
+        }
+        for event in recovery.pendingEvents {
+            let signal = await makeSignal(
+                type: event.type,
+                screenName: event.screenName,
+                metadata: event.metadata,
+                timestamp: event.timestamp
+            )
+            await signalBuffer.add(signal)
+        }
+        runStateStore.completePendingEvents(ids: recovery.pendingEvents.map(\.id))
     }
 
     private func handleTrackConfig(_ config: [String: String]) async {
@@ -195,7 +286,15 @@ public actor Pandalytics {
         guard hash != lastConfigHash else { return }
         lastConfigHash = hash
 
-        await handleSignal(type: "config_change", screenName: nil, metadata: config)
+        _ = await handleSignal(type: "config_change", screenName: nil, metadata: config)
+    }
+
+    private func handleLifecycleSignal(type: String, flush: Bool, pendingEventID: String?) async {
+        _ = await handleSignal(type: type, screenName: nil, metadata: nil)
+        runStateStore.completePendingEvent(id: pendingEventID)
+        if flush {
+            await signalBuffer.flush()
+        }
     }
 
     // MARK: - Lifecycle observers
@@ -206,32 +305,76 @@ public actor Pandalytics {
         #if os(iOS) || os(tvOS)
         nc.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
-            self.continuation.yield(.signal(type: "app_close", screenName: nil, metadata: nil))
-            self.continuation.yield(.flush)
+            self.enqueueLifecycleSignal(type: "app_close", flush: true, requestBackgroundTime: false)
         }
         nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
-            self.continuation.yield(.signal(type: "app_background", screenName: nil, metadata: nil))
-            self.continuation.yield(.flush)
+            self.enqueueLifecycleSignal(type: "app_background", flush: true, requestBackgroundTime: true)
         }
         nc.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
-            self.continuation.yield(.signal(type: "app_foreground", screenName: nil, metadata: nil))
+            self.enqueueLifecycleSignal(type: "app_foreground", flush: false, requestBackgroundTime: false)
         }
         #elseif os(macOS)
         nc.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
-            self.continuation.yield(.signal(type: "app_close", screenName: nil, metadata: nil))
-            self.continuation.yield(.flush)
+            self.enqueueLifecycleSignal(type: "app_close", flush: true, requestBackgroundTime: false)
         }
         nc.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
-            self.continuation.yield(.signal(type: "app_background", screenName: nil, metadata: nil))
-            self.continuation.yield(.flush)
+            self.enqueueLifecycleSignal(type: "app_background", flush: true, requestBackgroundTime: false)
         }
         nc.addObserver(forName: NSApplication.willBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
-            self.continuation.yield(.signal(type: "app_foreground", screenName: nil, metadata: nil))
+            self.enqueueLifecycleSignal(type: "app_foreground", flush: false, requestBackgroundTime: false)
+        }
+        #endif
+    }
+
+    private nonisolated func enqueueLifecycleSignal(
+        type: String,
+        flush: Bool,
+        requestBackgroundTime: Bool
+    ) {
+        let pendingEventID: String?
+        if Self.isTrackingEnabled {
+            pendingEventID = runStateStore.recordLifecycleSignalQueued(type: type)
+        } else {
+            runStateStore.recordLifecycleState(type: type)
+            pendingEventID = nil
+        }
+        let backgroundTask: LifecycleBackgroundTask
+        #if os(iOS)
+        if requestBackgroundTime {
+            backgroundTask = .uiApplication(
+                MainActor.assumeIsolated {
+                    UIApplication.shared.beginBackgroundTask(withName: "PandalyticsFlush")
+                }
+            )
+        } else {
+            backgroundTask = .none
+        }
+        #else
+        backgroundTask = .none
+        #endif
+
+        continuation.yield(
+            .lifecycleSignal(
+                type: type,
+                flush: flush,
+                pendingEventID: pendingEventID,
+                backgroundTask: backgroundTask
+            )
+        )
+    }
+
+    private nonisolated static func endBackgroundTask(
+        _ backgroundTask: LifecycleBackgroundTask
+    ) async {
+        #if os(iOS)
+        guard case .uiApplication(let identifier) = backgroundTask else { return }
+        await MainActor.run {
+            UIApplication.shared.endBackgroundTask(identifier)
         }
         #endif
     }
@@ -263,7 +406,8 @@ public actor Pandalytics {
         return String(decoding: machine.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
-    private nonisolated static var deviceType: String {
+    @MainActor
+    private static var deviceType: String {
         #if os(iOS)
         switch UIDevice.current.userInterfaceIdiom {
         case .phone: return "phone"

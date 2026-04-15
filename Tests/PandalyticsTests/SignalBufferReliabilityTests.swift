@@ -243,6 +243,48 @@ struct SignalBufferReliabilityTests {
         #expect(transport.batches[0].signals.count == 2)
     }
 
+    @Test("Signals added during an in-flight flush are preserved")
+    func signalsAddedDuringFlushArePreserved() async {
+        let dir = makeTempPersistenceDirectory()
+        defer { cleanupTempDirectory(dir) }
+
+        let transport = BlockingTransport()
+        let buffer = SignalBuffer(persistenceDirectory: dir)
+
+        for i in 0..<1000 {
+            await buffer.add(makeTestSignal(type: "before_\(i)"))
+        }
+
+        await buffer.configure(appId: "test", transport: transport)
+
+        let flushTask = Task {
+            await buffer.flush()
+        }
+
+        while transport.batches.isEmpty {
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+
+        for i in 0..<1000 {
+            await buffer.add(makeTestSignal(type: "during_\(i)"))
+        }
+
+        transport.release()
+        await flushTask.value
+
+        let pendingCount = await buffer.bufferedCount
+        #expect(pendingCount == 1000)
+
+        await buffer.flush()
+
+        let sentTypes = transport.batches.flatMap(\.signals).map(\.signalType)
+        #expect(sentTypes.count == 2000)
+        #expect(sentTypes.contains("before_0"))
+        #expect(sentTypes.contains("before_999"))
+        #expect(sentTypes.contains("during_0"))
+        #expect(sentTypes.contains("during_999"))
+    }
+
     // MARK: - Flush behavior
 
     @Test("Successful flush removes signals from buffer and disk")
