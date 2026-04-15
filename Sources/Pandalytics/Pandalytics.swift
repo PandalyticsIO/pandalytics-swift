@@ -9,6 +9,9 @@ import UIKit
 #if canImport(AppKit)
 import AppKit
 #endif
+#if canImport(WatchKit)
+import WatchKit
+#endif
 
 /// Pandalytics — privacy-focused mobile app analytics.
 /// No personal data collected. No IPs, no cookies.
@@ -302,7 +305,7 @@ public actor Pandalytics {
     private nonisolated func registerLifecycleObservers() {
         let nc = NotificationCenter.default
 
-        #if os(iOS) || os(tvOS)
+        #if os(iOS) || os(tvOS) || os(visionOS)
         nc.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             self.enqueueLifecycleSignal(type: "app_close", flush: true, requestBackgroundTime: false)
@@ -325,6 +328,15 @@ public actor Pandalytics {
             self.enqueueLifecycleSignal(type: "app_background", flush: true, requestBackgroundTime: false)
         }
         nc.addObserver(forName: NSApplication.willBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.enqueueLifecycleSignal(type: "app_foreground", flush: false, requestBackgroundTime: false)
+        }
+        #elseif os(watchOS)
+        nc.addObserver(forName: WKApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.enqueueLifecycleSignal(type: "app_background", flush: true, requestBackgroundTime: false)
+        }
+        nc.addObserver(forName: WKApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             self.enqueueLifecycleSignal(type: "app_foreground", flush: false, requestBackgroundTime: false)
         }
@@ -444,8 +456,10 @@ public actor Pandalytics {
             default: meta["color_scheme"] = "unknown"
             }
 
+            #if !os(visionOS)
             let bounds = windowScene.screen.nativeBounds
             meta["screen_resolution"] = "\(Int(bounds.width))x\(Int(bounds.height))"
+            #endif
         }
 
         meta["accessibility_reduce_motion"] = UIAccessibility.isReduceMotionEnabled ? "true" : "false"
