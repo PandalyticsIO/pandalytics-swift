@@ -26,6 +26,7 @@ public actor Pandalytics {
     let sessionManager: SessionManager
     private var lastConfigHash: String?
     private var hasConfigured = false
+    private let signalAttributeCache: SignalAttributeCache
 
     private let continuation: AsyncStream<SDKMessage>.Continuation
 
@@ -76,10 +77,13 @@ public actor Pandalytics {
         self.signalBuffer = SignalBuffer()
         self.runStateStore = RunStateStore()
         self.sessionManager = SessionManager()
+        self.signalAttributeCache = SignalAttributeCache()
 
         let (stream, continuation) = AsyncStream.makeStream(of: SDKMessage.self)
         self.continuation = continuation
-        Task { await processMessages(stream) }
+        Task { 
+            await processMessages(stream) 
+        }
     }
 
     // MARK: - Public API
@@ -243,12 +247,12 @@ public actor Pandalytics {
             signalType: type,
             timestamp: timestamp,
             screenName: screenName,
-            appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
-            buildNumber: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown",
-            osName: Self.osName,
-            osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
-            deviceModel: Self.deviceModel,
-            deviceType: await Self.deviceType,
+            appVersion: signalAttributeCache.appVersion,
+            buildNumber: signalAttributeCache.buildNumber,
+            osName: signalAttributeCache.osName,
+            osVersion: signalAttributeCache.osVersion,
+            deviceModel: signalAttributeCache.deviceModel,
+            deviceType: signalAttributeCache.deviceType,
             locale: Locale.current.identifier,
             language: Self.language,
             region: TimeZone.current.identifier,
@@ -388,53 +392,6 @@ public actor Pandalytics {
     }
 
     // MARK: - Device info (no PII)
-
-    private nonisolated static var osName: String {
-        #if os(iOS)
-        return "iOS"
-        #elseif os(macOS)
-        return "macOS"
-        #elseif os(tvOS)
-        return "tvOS"
-        #elseif os(watchOS)
-        return "watchOS"
-        #else
-        return "unknown"
-        #endif
-    }
-
-    private nonisolated static var deviceModel: String {
-        var size = 0
-        sysctlbyname("hw.machine", nil, &size, nil, 0)
-        var machine = [CChar](repeating: 0, count: size)
-        sysctlbyname("hw.machine", &machine, &size, nil, 0)
-        if let nullIndex = machine.firstIndex(of: 0) {
-            machine = Array(machine[..<nullIndex])
-        }
-        return String(decoding: machine.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-    }
-
-    @MainActor
-    private static var deviceType: String {
-        #if os(iOS)
-        switch UIDevice.current.userInterfaceIdiom {
-        case .phone: return "phone"
-        case .pad: return "tablet"
-        case .tv: return "tv"
-        default: return "unknown"
-        }
-        #elseif os(macOS)
-        return "desktop"
-        #elseif os(watchOS)
-        return "watch"
-        #elseif os(tvOS)
-        return "tv"
-        #elseif os(visionOS)
-        return "headset"
-        #else
-        return "unknown"
-        #endif
-    }
 
     private nonisolated static var language: String {
         Locale.current.language.languageCode?.identifier ?? "unknown"
