@@ -13,7 +13,7 @@ struct PandalyticsTransport: SignalTransport {
 
     private let ingestURL: URL
     private let ingestionKey: String
-    private let isDev: Bool
+    private let options: PandalyticsOptions
 
     /// - Parameters:
     ///   - ingestURL: Full URL of the ingestion endpoint (defaults to production).
@@ -22,11 +22,11 @@ struct PandalyticsTransport: SignalTransport {
     init(
         ingestURL: URL = PandalyticsConfig.productionIngestURL,
         ingestionKey: String,
-        isDev: Bool
+        options: PandalyticsOptions
     ) {
         self.ingestURL = ingestURL
         self.ingestionKey = ingestionKey
-        self.isDev = isDev
+        self.options = options
     }
 
     func send(batch: SignalBatch) async -> TransportResult {
@@ -55,7 +55,11 @@ struct PandalyticsTransport: SignalTransport {
         request.httpMethod = "POST"
         request.setValue("application/x-ndjson", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(ingestionKey)", forHTTPHeaderField: "Authorization")
-        request.setValue(isDev ? "true" : "false", forHTTPHeaderField: "X-Pandalytics-Dev")
+        if let isDev = options.isDev {
+            request.setValue(isDev ? "true" : "false", forHTTPHeaderField: "X-Pandalytics-Dev")
+        } else {
+            request.setValue("false", forHTTPHeaderField: "X-Pandalytics-Dev")
+        }
         request.httpBody = body
         request.timeoutInterval = 10
 

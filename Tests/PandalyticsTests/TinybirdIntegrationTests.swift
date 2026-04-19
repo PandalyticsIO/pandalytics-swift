@@ -43,12 +43,13 @@ struct TinybirdIntegrationTests {
 
         let ingestURL = URL(
             string: env["PANDALYTICS_INGEST_URL"] ?? "http://localhost:3000/api/v1/ingest"
+            // string: env["PANDALYTICS_INGEST_URL"] ?? "https://pandalytics.io/api/v1/ingest"
         )!
 
         let transport = PandalyticsTransport(
             ingestURL: ingestURL,
             ingestionKey: ingestionKey,
-            isDev: true
+            options: .init(isDev: true)
         )
 
         let installationHash = "test-installation-\(UUID().uuidString.prefix(8))"
@@ -105,7 +106,7 @@ struct TinybirdIntegrationTests {
         let transport = PandalyticsTransport(
             ingestURL: ingestURL,
             ingestionKey: "panda_sk_obviously-not-a-real-key",
-            isDev: true
+            options: .init(isDev: true)
         )
 
         let signal = Signal(

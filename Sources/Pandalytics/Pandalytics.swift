@@ -21,7 +21,6 @@ public actor Pandalytics {
     public static let shared = Pandalytics()
 
     private var appId: String?
-    private var isDev: Bool
     private let signalBuffer: SignalBuffer
     private let runStateStore: RunStateStore
     let sessionManager: SessionManager
@@ -40,7 +39,7 @@ public actor Pandalytics {
     }
 
     private enum SDKMessage: Sendable {
-        case configure(appId: String, ingestionKey: String, isDev: Bool?)
+        case configure(appId: String, ingestionKey: String, options: PandalyticsOptions)
         case signal(type: String, screenName: String?, metadata: [String: String]?)
         case lifecycleSignal(
             type: String,
@@ -54,7 +53,7 @@ public actor Pandalytics {
 
     // MARK: - Tracking control
 
-    private static let trackingEnabledKey = "com.pandalytics.trackingEnabled"
+    private static let trackingEnabledKey = "io.pandalytics.trackingEnabled"
 
     /// Enable or disable tracking. Persisted across app launches.
     /// When disabled, signals are silently dropped (not buffered).
@@ -77,11 +76,6 @@ public actor Pandalytics {
         self.signalBuffer = SignalBuffer()
         self.runStateStore = RunStateStore()
         self.sessionManager = SessionManager()
-        #if DEBUG
-        self.isDev = true
-        #else
-        self.isDev = false
-        #endif
 
         let (stream, continuation) = AsyncStream.makeStream(of: SDKMessage.self)
         self.continuation = continuation
@@ -96,14 +90,14 @@ public actor Pandalytics {
     ///   - ingestionKey: Your app's ingestion key from the Pandalytics dashboard
     ///     (starts with `panda_sk_`). Required — signals won't be delivered
     ///     without a valid key.
-    ///   - isDev: Override dev detection. If nil, uses #if DEBUG (defaults to true for debug builds).
+    ///   - options: The options for configuring the SDK.
     nonisolated public static func configure(
         appId: String,
         ingestionKey: String,
-        isDev: Bool? = nil
+        options: PandalyticsOptions = .init()
     ) {
         shared.continuation.yield(
-            .configure(appId: appId, ingestionKey: ingestionKey, isDev: isDev)
+            .configure(appId: appId, ingestionKey: ingestionKey, options: options)
         )
     }
 
@@ -150,8 +144,8 @@ public actor Pandalytics {
     private func processMessages(_ stream: AsyncStream<SDKMessage>) async {
         for await message in stream {
             switch message {
-            case .configure(let appId, let ingestionKey, let isDev):
-                await handleConfigure(appId: appId, ingestionKey: ingestionKey, isDev: isDev)
+            case .configure(let appId, let ingestionKey, let options):
+                await handleConfigure(appId: appId, ingestionKey: ingestionKey, options: options)
             case .signal(let type, let screenName, let metadata):
                 await handleSignal(type: type, screenName: screenName, metadata: metadata)
             case .lifecycleSignal(let type, let flush, let pendingEventID, let backgroundTask):
@@ -167,7 +161,7 @@ public actor Pandalytics {
 
     // MARK: - Message handlers
 
-    private func handleConfigure(appId: String, ingestionKey: String, isDev: Bool?) async {
+    private func handleConfigure(appId: String, ingestionKey: String, options: PandalyticsOptions) async {
         guard !hasConfigured else {
             #if DEBUG
             print("[Pandalytics] SDK already configured. Ignoring duplicate configure() call.")
@@ -176,17 +170,19 @@ public actor Pandalytics {
         }
 
         self.appId = appId
-        if let isDev { self.isDev = isDev }
 
         let transport = PandalyticsTransport(
             ingestionKey: ingestionKey,
-            isDev: self.isDev
+            options: options
         )
         let recovery = runStateStore.startRun()
         await signalBuffer.configure(appId: appId, transport: transport)
         await handleRecovery(recovery)
         await signalBuffer.startFlushing()
-        registerLifecycleObservers()
+
+        if options.trackApplicationLifecycleEvents {
+            registerLifecycleObservers()
+        }
 
         hasConfigured = true
 
