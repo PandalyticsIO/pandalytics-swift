@@ -8,6 +8,8 @@ import Foundation
 /// APPEND tokens that used to be compiled into the SDK are now held by the
 /// edge function and never reach the client.
 enum PandalyticsConfig {
-    /// Production ingestion endpoint. The SDK talks to this, not Tinybird.
-    static let productionIngestURL = URL(string: "https://pandalytics.io/api/v1/ingest")!
+    /// Production ingestion endpoint. `push.pandalytics.io` is the public URL
+    /// contract — see the dashboard repo's AGENTS.md "Public URL contract"
+    /// section before changing.
+    static let productionIngestURL = URL(string: "https://push.pandalytics.io")!
 }
