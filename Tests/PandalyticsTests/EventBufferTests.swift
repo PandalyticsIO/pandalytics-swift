@@ -37,6 +37,7 @@ struct SignalBufferTests {
             locale: "en_US",
             language: "en",
             region: "America/New_York",
+            countryCode: "US",
             installationHash: "abc123",
             metadata: ["color_scheme": "dark"]
         )
@@ -78,6 +79,7 @@ struct SignalBufferTests {
             locale: "de_DE",
             language: "de",
             region: "Europe/Berlin",
+            countryCode: "DE",
             installationHash: "hash",
             metadata: nil
         )

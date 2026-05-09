@@ -15,6 +15,7 @@ struct Signal: Codable, Sendable {
     let locale: String
     let language: String                // ISO 639-1 e.g. "en", "de"
     let region: String                  // IANA timezone identifier
+    let countryCode: String             // ISO 3166-1 alpha-2; respects user's regional preference override
     let installationHash: String        // SHA-256 of persistent installation UUID
     let metadata: [String: String]?     // color_scheme, accessibility, custom
 
@@ -31,6 +32,7 @@ struct Signal: Codable, Sendable {
         case locale
         case language
         case region
+        case countryCode = "country_code"
         case installationHash = "installation_hash"
         case metadata
     }

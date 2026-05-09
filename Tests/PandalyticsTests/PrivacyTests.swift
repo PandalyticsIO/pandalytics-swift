@@ -20,6 +20,7 @@ struct PrivacyTests {
             locale: "en_US",
             language: "en",
             region: "America/New_York",
+            countryCode: "US",
             installationHash: "abc123hash",
             metadata: nil
         )
@@ -49,6 +50,7 @@ struct PrivacyTests {
             locale: "de_DE",
             language: "de",
             region: "Europe/Berlin",
+            countryCode: "DE",
             installationHash: "hashed_user",
             metadata: ["color_scheme": "dark"]
         )
@@ -100,6 +102,7 @@ struct PrivacyTests {
             locale: "en_US",
             language: "en",
             region: TimeZone.current.identifier,
+            countryCode: "US",
             installationHash: "hash",
             metadata: nil
         )

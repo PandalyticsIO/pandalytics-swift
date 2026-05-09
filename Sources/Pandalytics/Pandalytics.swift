@@ -256,6 +256,7 @@ public actor Pandalytics {
             locale: Locale.current.identifier,
             language: Self.language,
             region: TimeZone.current.identifier,
+            countryCode: Locale.current.region?.identifier ?? "unknown",
             installationHash: await sessionManager.installationHash(),
             metadata: allMetadata.isEmpty ? nil : allMetadata
         )

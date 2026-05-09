@@ -16,6 +16,7 @@ func makeTestSignal(type: String = "test", metadata: [String: String]? = nil) ->
         locale: "en_US",
         language: "en",
         region: "UTC",
+        countryCode: "US",
         installationHash: "test-hash",
         metadata: metadata
     )

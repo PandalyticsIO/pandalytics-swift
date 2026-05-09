@@ -71,6 +71,7 @@ struct TinybirdIntegrationTests {
                 locale: "en_US",
                 language: "en",
                 region: "America/New_York",
+                countryCode: "US",
                 installationHash: String(installationHash),
                 metadata: meta
             )
@@ -117,6 +118,7 @@ struct TinybirdIntegrationTests {
             osName: "iOS", osVersion: "18.0",
             deviceModel: "iPhone15,2", deviceType: "phone",
             locale: "en_US", language: "en", region: "UTC",
+            countryCode: "US",
             installationHash: "fake",
             metadata: nil
         )
