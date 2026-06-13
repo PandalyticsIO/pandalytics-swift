@@ -1,10 +1,12 @@
 import Foundation
 
-/// Stores small crash-adjacent run state separately from the normal signal queue.
+/// Durably records critical signals (from `signalCritical` / `captureError`)
+/// before they reach the buffer, so they can be recovered on the next launch if
+/// the process exits before `SignalBuffer` persists them.
 ///
 /// This path is intentionally synchronous and tiny. Normal analytics stay on the
-/// nonblocking stream; lifecycle/error signals use this only as a local recovery
-/// marker until `SignalBuffer` has durably persisted the corresponding signal.
+/// nonblocking stream; only critical signals touch this store, and only as a
+/// local recovery marker until `SignalBuffer` has durably persisted the signal.
 final class RunStateStore: @unchecked Sendable {
 
     struct PendingEvent: Codable, Sendable, Equatable {
@@ -19,15 +21,6 @@ final class RunStateStore: @unchecked Sendable {
         let pendingEvents: [PendingEvent]
     }
 
-    private struct RunState: Codable, Sendable {
-        let runId: String
-        let startedAt: String
-        var cleanShutdown: Bool
-        var lastLifecycleSignal: String?
-        var lastLifecycleAt: String?
-        var updatedAt: String
-    }
-
     private let lock = NSLock()
     private let persistenceDirectory: URL?
     private let maxPendingEvents = 50
@@ -36,57 +29,15 @@ final class RunStateStore: @unchecked Sendable {
         self.persistenceDirectory = persistenceDirectory
     }
 
+    /// Load any critical-signal markers left over from a previous run that exited
+    /// before the signals were durably buffered. Returns `nil` when there is
+    /// nothing to recover.
     @discardableResult
-    func startRun() -> Recovery? {
+    func recoverPendingEvents() -> Recovery? {
         lock.withLock {
-            var pendingEvents = loadPendingEvents()
-            let previousState = loadRunState()
-
-            if let unexpectedEvent = makeUnexpectedRunEvent(from: previousState),
-               !pendingEvents.contains(where: { $0.id == unexpectedEvent.id }) {
-                pendingEvents.append(unexpectedEvent)
-                pendingEvents = Array(pendingEvents.suffix(maxPendingEvents))
-                savePendingEvents(pendingEvents)
-            }
-
-            saveRunState(
-                RunState(
-                    runId: UUID().uuidString,
-                    startedAt: Self.nowString(),
-                    cleanShutdown: false,
-                    lastLifecycleSignal: nil,
-                    lastLifecycleAt: nil,
-                    updatedAt: Self.nowString()
-                )
-            )
-
+            let pendingEvents = loadPendingEvents()
             guard !pendingEvents.isEmpty else { return nil }
             return Recovery(pendingEvents: pendingEvents)
-        }
-    }
-
-    @discardableResult
-    func recordLifecycleSignalQueued(type: String) -> String? {
-        lock.withLock {
-            updateLifecycleState(type: type)
-
-            let event = PendingEvent(
-                id: UUID().uuidString,
-                type: type,
-                timestamp: Self.nowString(),
-                screenName: nil,
-                metadata: ["pandalytics_recovered": "true"]
-            )
-            var pendingEvents = loadPendingEvents()
-            pendingEvents.append(event)
-            savePendingEvents(Array(pendingEvents.suffix(maxPendingEvents)))
-            return event.id
-        }
-    }
-
-    func recordLifecycleState(type: String) {
-        lock.withLock {
-            updateLifecycleState(type: type)
         }
     }
 
@@ -128,68 +79,7 @@ final class RunStateStore: @unchecked Sendable {
         }
     }
 
-    private func makeUnexpectedRunEvent(from state: RunState?) -> PendingEvent? {
-        guard let state, !state.cleanShutdown else { return nil }
-        if state.lastLifecycleSignal == "app_background" {
-            return nil
-        }
-
-        var metadata: [String: String] = [
-            "pandalytics_recovered": "true",
-            "previous_run_id": state.runId,
-            "previous_run_started_at": state.startedAt,
-        ]
-        if let lastLifecycleSignal = state.lastLifecycleSignal {
-            metadata["last_lifecycle_signal"] = lastLifecycleSignal
-        }
-        if let lastLifecycleAt = state.lastLifecycleAt {
-            metadata["last_lifecycle_at"] = lastLifecycleAt
-        }
-
-        return PendingEvent(
-            id: "unexpected-\(state.runId)",
-            type: "previous_run_ended_unexpectedly",
-            timestamp: Self.nowString(),
-            screenName: nil,
-            metadata: metadata
-        )
-    }
-
-    private func updateRunState(_ update: (inout RunState) -> Void) {
-        guard var state = loadRunState() else { return }
-        update(&state)
-        saveRunState(state)
-    }
-
-    private func updateLifecycleState(type: String) {
-        updateRunState { state in
-            state.cleanShutdown = type == "app_close"
-            state.lastLifecycleSignal = type
-            state.lastLifecycleAt = Self.nowString()
-            state.updatedAt = Self.nowString()
-        }
-    }
-
-    private func loadRunState() -> RunState? {
-        guard let url = runStateURL(),
-              FileManager.default.fileExists(atPath: url.path),
-              let data = try? Data(contentsOf: url) else {
-            return nil
-        }
-        return try? JSONDecoder().decode(RunState.self, from: data)
-    }
-
-    private func saveRunState(_ state: RunState) {
-        guard let url = runStateURL() else { return }
-        do {
-            let data = try JSONEncoder().encode(state)
-            try data.write(to: url, options: .atomic)
-        } catch {
-            #if DEBUG
-            print("[Pandalytics] Failed to persist run state: \(error.localizedDescription)")
-            #endif
-        }
-    }
+    // MARK: - Persistence
 
     private func loadPendingEvents() -> [PendingEvent] {
         guard let url = pendingEventsURL(),
@@ -214,10 +104,6 @@ final class RunStateStore: @unchecked Sendable {
             print("[Pandalytics] Failed to persist pending recovery events: \(error.localizedDescription)")
             #endif
         }
-    }
-
-    private func runStateURL() -> URL? {
-        persistenceURL(filename: "run_state.json")
     }
 
     private func pendingEventsURL() -> URL? {
