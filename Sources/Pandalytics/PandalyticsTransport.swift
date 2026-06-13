@@ -4,8 +4,8 @@ import Foundation
 ///
 /// The edge function (at `/api/v1/ingest`) authenticates the request using
 /// the SDK-supplied ingestion key, rewrites `app_id` on every row from the
-/// server-resolved value, and forwards the batch to Tinybird. The raw Tinybird
-/// APPEND token never leaves the server — that's the whole point of this
+/// server-resolved value, and writes the batch to Postgres. Database
+/// credentials never leave the server — that's the whole point of this
 /// transport existing.
 ///
 /// Wire format: NDJSON body, one signal per line with `app_id` merged in.
@@ -18,7 +18,7 @@ struct PandalyticsTransport: SignalTransport {
     /// - Parameters:
     ///   - ingestURL: Full URL of the ingestion endpoint (defaults to production).
     ///   - ingestionKey: Per-app secret the developer copies from the dashboard.
-    ///   - isDev: Routes to the `pandalytics_dev` workspace when true.
+    ///   - isDev: Routes to the dev environment when true.
     init(
         ingestURL: URL = PandalyticsConfig.productionIngestURL,
         ingestionKey: String,
@@ -78,8 +78,8 @@ struct PandalyticsTransport: SignalTransport {
     }
 }
 
-/// A flattened signal with app_id included — matches the Tinybird `signals`
-/// datasource schema. The edge function will overwrite `app_id` with the
+/// A flattened signal with app_id included — matches the server's `signals`
+/// schema. The edge function will overwrite `app_id` with the
 /// server-authenticated value, but we include the SDK-supplied value so the
 /// on-the-wire format stays identical regardless of transport.
 private struct FlatSignal: Encodable {
