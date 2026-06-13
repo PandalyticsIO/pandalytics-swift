@@ -5,7 +5,6 @@ public struct PandalyticsOptions: Sendable {
     // var flushAt: Int = 20
     // var flushInterval: TimeInterval = 60
     // var maxQueueSize: Int = 1000
-    var trackApplicationLifecycleEvents: Bool = false
     // var recordScreenViews: Bool = false
     var isDev: Bool? = nil
 
@@ -21,14 +20,12 @@ public struct PandalyticsOptions: Sendable {
         // flushAt: Int = 20,
         // flushInterval: TimeInterval = 60,
         // maxQueueSize: Int = 1000,
-        trackApplicationLifecycleEvents: Bool = false,
         // recordScreenViews: Bool = false,
         isDev: Bool? = nil
     ) {
         // self.flushAt = flushAt
         // self.flushInterval = flushInterval
         // self.maxQueueSize = maxQueueSize
-        self.trackApplicationLifecycleEvents = trackApplicationLifecycleEvents
         // self.recordScreenViews = recordScreenViews
 
         if isDev == nil {

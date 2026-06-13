@@ -6,12 +6,6 @@ import SwiftUI
 #if canImport(UIKit)
 import UIKit
 #endif
-#if canImport(AppKit)
-import AppKit
-#endif
-#if canImport(WatchKit)
-import WatchKit
-#endif
 
 /// Pandalytics — privacy-focused mobile app analytics.
 /// No personal data collected. No IPs, no cookies.
@@ -28,26 +22,19 @@ public actor Pandalytics {
     private var hasConfigured = false
     private let signalAttributeCache: SignalAttributeCache
 
+    /// UI-trait metadata (color scheme, screen size, accessibility flags). These
+    /// are read from the main actor exactly once and reused for every signal —
+    /// see `uiTraitMetadata()`. They are effectively constant for a session, so
+    /// caching avoids a main-actor hop on the hot signal path.
+    private var cachedUITraitMetadata: [String: String]?
+
     private let continuation: AsyncStream<SDKMessage>.Continuation
 
     // MARK: - Message types
 
-    private enum LifecycleBackgroundTask: Sendable {
-        case none
-        #if os(iOS)
-        case uiApplication(UIBackgroundTaskIdentifier)
-        #endif
-    }
-
     private enum SDKMessage: Sendable {
         case configure(appId: String, ingestionKey: String, options: PandalyticsOptions)
         case signal(type: String, screenName: String?, metadata: [String: String]?)
-        case lifecycleSignal(
-            type: String,
-            flush: Bool,
-            pendingEventID: String?,
-            backgroundTask: LifecycleBackgroundTask
-        )
         case trackConfig([String: String])
         case flush
     }
@@ -152,9 +139,6 @@ public actor Pandalytics {
                 await handleConfigure(appId: appId, ingestionKey: ingestionKey, options: options)
             case .signal(let type, let screenName, let metadata):
                 await handleSignal(type: type, screenName: screenName, metadata: metadata)
-            case .lifecycleSignal(let type, let flush, let pendingEventID, let backgroundTask):
-                await handleLifecycleSignal(type: type, flush: flush, pendingEventID: pendingEventID)
-                await Self.endBackgroundTask(backgroundTask)
             case .trackConfig(let config):
                 await handleTrackConfig(config)
             case .flush:
@@ -179,14 +163,10 @@ public actor Pandalytics {
             ingestionKey: ingestionKey,
             options: options
         )
-        let recovery = runStateStore.startRun()
+        let recovery = runStateStore.recoverPendingEvents()
         await signalBuffer.configure(appId: appId, transport: transport)
         await handleRecovery(recovery)
         await signalBuffer.startFlushing()
-
-        if options.trackApplicationLifecycleEvents {
-            registerLifecycleObservers()
-        }
 
         hasConfigured = true
 
@@ -232,7 +212,7 @@ public actor Pandalytics {
         timestamp: String
     ) async -> Signal {
         var allMetadata = metadata ?? [:]
-        let defaults = await Self.collectDefaultMetadata()
+        let defaults = await uiTraitMetadata()
         for (key, value) in defaults {
             if allMetadata[key] == nil {
                 allMetadata[key] = value
@@ -264,6 +244,19 @@ public actor Pandalytics {
         return signal
     }
 
+    /// Returns the UI-trait metadata, reading it from the main actor on first use
+    /// and caching it thereafter. The values (color scheme, screen size,
+    /// accessibility flags) are stable for a session, so the main-actor hop
+    /// happens at most once instead of on every signal.
+    private func uiTraitMetadata() async -> [String: String] {
+        if let cachedUITraitMetadata {
+            return cachedUITraitMetadata
+        }
+        let traits = await Self.collectDefaultMetadata()
+        cachedUITraitMetadata = traits
+        return traits
+    }
+
     private func handleRecovery(_ recovery: RunStateStore.Recovery?) async {
         guard let recovery else { return }
         guard Self.isTrackingEnabled else {
@@ -291,105 +284,6 @@ public actor Pandalytics {
         lastConfigHash = hash
 
         _ = await handleSignal(type: "config_change", screenName: nil, metadata: config)
-    }
-
-    private func handleLifecycleSignal(type: String, flush: Bool, pendingEventID: String?) async {
-        _ = await handleSignal(type: type, screenName: nil, metadata: nil)
-        runStateStore.completePendingEvent(id: pendingEventID)
-        if flush {
-            await signalBuffer.flush()
-        }
-    }
-
-    // MARK: - Lifecycle observers
-
-    private nonisolated func registerLifecycleObservers() {
-        let nc = NotificationCenter.default
-
-        #if os(iOS) || os(tvOS) || os(visionOS)
-        nc.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            self.enqueueLifecycleSignal(type: "app_close", flush: true, requestBackgroundTime: false)
-        }
-        nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            self.enqueueLifecycleSignal(type: "app_background", flush: true, requestBackgroundTime: true)
-        }
-        nc.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            self.enqueueLifecycleSignal(type: "app_foreground", flush: false, requestBackgroundTime: false)
-        }
-        #elseif os(macOS)
-        nc.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            self.enqueueLifecycleSignal(type: "app_close", flush: true, requestBackgroundTime: false)
-        }
-        nc.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            self.enqueueLifecycleSignal(type: "app_background", flush: true, requestBackgroundTime: false)
-        }
-        nc.addObserver(forName: NSApplication.willBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            self.enqueueLifecycleSignal(type: "app_foreground", flush: false, requestBackgroundTime: false)
-        }
-        #elseif os(watchOS)
-        nc.addObserver(forName: WKApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            self.enqueueLifecycleSignal(type: "app_background", flush: true, requestBackgroundTime: false)
-        }
-        nc.addObserver(forName: WKApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            self.enqueueLifecycleSignal(type: "app_foreground", flush: false, requestBackgroundTime: false)
-        }
-        #endif
-    }
-
-    private nonisolated func enqueueLifecycleSignal(
-        type: String,
-        flush: Bool,
-        requestBackgroundTime: Bool
-    ) {
-        let pendingEventID: String?
-        if Self.isTrackingEnabled {
-            pendingEventID = runStateStore.recordLifecycleSignalQueued(type: type)
-        } else {
-            runStateStore.recordLifecycleState(type: type)
-            pendingEventID = nil
-        }
-        let backgroundTask: LifecycleBackgroundTask
-        #if os(iOS)
-        if requestBackgroundTime {
-            backgroundTask = .uiApplication(
-                MainActor.assumeIsolated {
-                    UIApplication.shared.beginBackgroundTask(withName: "PandalyticsFlush")
-                }
-            )
-        } else {
-            backgroundTask = .none
-        }
-        #else
-        backgroundTask = .none
-        #endif
-
-        continuation.yield(
-            .lifecycleSignal(
-                type: type,
-                flush: flush,
-                pendingEventID: pendingEventID,
-                backgroundTask: backgroundTask
-            )
-        )
-    }
-
-    private nonisolated static func endBackgroundTask(
-        _ backgroundTask: LifecycleBackgroundTask
-    ) async {
-        #if os(iOS)
-        guard case .uiApplication(let identifier) = backgroundTask else { return }
-        await MainActor.run {
-            UIApplication.shared.endBackgroundTask(identifier)
-        }
-        #endif
     }
 
     // MARK: - Device info (no PII)
