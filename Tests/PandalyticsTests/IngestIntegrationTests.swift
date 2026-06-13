@@ -3,12 +3,12 @@ import Foundation
 @testable import Pandalytics
 
 /// Integration test that sends real signals through the Pandalytics ingestion
-/// edge function to the pandalytics_dev Tinybird workspace.
+/// edge function to the dev environment.
 ///
 /// Simulates a session (app_open → screen_view → screen_view → button_tap → app_close)
 /// and verifies the edge function accepts them (2xx) — which implies:
 ///   1. The ingestion key hashed correctly and resolved to an app_id in Supabase.
-///   2. The edge function forwarded the batch to Tinybird successfully.
+///   2. The edge function wrote the batch to Postgres successfully.
 ///
 /// Required env vars (no fallback — the test skips if missing, because
 /// without a valid key everything is forged):
@@ -23,12 +23,12 @@ import Foundation
 /// To run:
 ///   cd sdks/swift && \
 ///   PANDALYTICS_APP_ID=<uuid> PANDALYTICS_INGESTION_KEY=panda_sk_... \
-///   swift test --filter TinybirdIntegration
+///   swift test --filter IngestIntegration
 ///
-/// The 5 signals should appear in the pandalytics_dev workspace's `signals`
-/// datasource within ~seconds.
-@Suite("Tinybird Integration")
-struct TinybirdIntegrationTests {
+/// The 5 signals should appear in the dev environment's `signals` table
+/// within ~seconds.
+@Suite("Ingest Integration")
+struct IngestIntegrationTests {
 
     @Test("Simulated session is delivered via the ingest edge function")
     func sessionDeliveredViaEdgeFunction() async throws {
@@ -43,7 +43,6 @@ struct TinybirdIntegrationTests {
 
         let ingestURL = URL(
             string: env["PANDALYTICS_INGEST_URL"] ?? "http://localhost:3000/api/v1/ingest"
-            // string: env["PANDALYTICS_INGEST_URL"] ?? "https://pandalytics.io/api/v1/ingest"
         )!
 
         let transport = PandalyticsTransport(
