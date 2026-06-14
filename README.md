@@ -29,11 +29,11 @@ Or in Xcode: File > Add Package Dependencies > paste the repository URL.
 import Pandalytics
 
 // Configure once at app launch. Both values come from your Pandalytics dashboard;
-// the ingestion key (`panda_sk_...`) is shown once when you create the app and
+// the ingestion key (`panda_pk_...`) is shown once when you create the app and
 // can be rotated at any time.
 Pandalytics.configure(
     appId: "your-app-id-from-dashboard",
-    ingestionKey: "panda_sk_..."
+    ingestionKey: "panda_pk_..."
 )
 
 // Send signals
