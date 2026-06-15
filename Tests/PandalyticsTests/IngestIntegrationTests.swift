@@ -3,40 +3,38 @@ import Foundation
 @testable import Pandalytics
 
 /// Integration test that sends real signals through the Pandalytics ingestion
-/// edge function to the dev environment.
+/// endpoint to a dev environment.
 ///
 /// Simulates a session (app_open → screen_view → screen_view → button_tap → app_close)
-/// and verifies the edge function accepts them (2xx) — which implies:
-///   1. The ingestion key hashed correctly and resolved to an app_id in Supabase.
-///   2. The edge function wrote the batch to Postgres successfully.
+/// and verifies the endpoint accepts them (2xx) — which implies the ingestion
+/// key was valid and the batch was accepted for the resolved app.
 ///
 /// Required env vars (no fallback — the test skips if missing, because
 /// without a valid key everything is forged):
 ///   PANDALYTICS_APP_ID         — UUID of the app you created in the dashboard
-///   PANDALYTICS_INGESTION_KEY  — the `panda_sk_...` secret shown once at creation
+///   PANDALYTICS_INGESTION_KEY  — the `panda_pk_...` secret shown once at creation
 ///
 /// Optional:
 ///   PANDALYTICS_INGEST_URL     — override the ingest URL
 ///                                (default: http://localhost:3000/api/v1/ingest
-///                                 so the test hits the local Next.js dev server).
+///                                 so the test hits a local dev server).
 ///
 /// To run:
 ///   cd sdks/swift && \
-///   PANDALYTICS_APP_ID=<uuid> PANDALYTICS_INGESTION_KEY=panda_sk_... \
+///   PANDALYTICS_APP_ID=<uuid> PANDALYTICS_INGESTION_KEY=panda_pk_... \
 ///   swift test --filter IngestIntegration
 ///
-/// The 5 signals should appear in the dev environment's `signals` table
-/// within ~seconds.
+/// On success the signals are accepted for ingestion within ~seconds.
 @Suite("Ingest Integration")
 struct IngestIntegrationTests {
 
-    @Test("Simulated session is delivered via the ingest edge function")
-    func sessionDeliveredViaEdgeFunction() async throws {
+    @Test("Simulated session is delivered via the ingest endpoint")
+    func sessionDeliveredViaEndpoint() async throws {
         let env = ProcessInfo.processInfo.environment
         guard let appId = env["PANDALYTICS_APP_ID"],
               let ingestionKey = env["PANDALYTICS_INGESTION_KEY"] else {
             // Skip cleanly rather than fail — running this test without real
-            // creds is pointless since the edge function would reject them.
+            // creds is pointless since the endpoint would reject them.
             print("[integration-test] Skipping: PANDALYTICS_APP_ID and PANDALYTICS_INGESTION_KEY must be set.")
             return
         }
@@ -93,7 +91,7 @@ struct IngestIntegrationTests {
         )
     }
 
-    @Test("Forged ingestion key is rejected by the edge function")
+    @Test("Forged ingestion key is rejected by the endpoint")
     func forgedKeyRejected() async throws {
         let env = ProcessInfo.processInfo.environment
         // This test runs unconditionally against localhost — no real creds needed.
@@ -105,7 +103,7 @@ struct IngestIntegrationTests {
         // (The transport has a 10s timeout; a wrong URL would just fail slowly.)
         let transport = PandalyticsTransport(
             ingestURL: ingestURL,
-            ingestionKey: "panda_sk_obviously-not-a-real-key",
+            ingestionKey: "panda_pk_obviously-not-a-real-key",
             options: .init(isDev: true)
         )
 

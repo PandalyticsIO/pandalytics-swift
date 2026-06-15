@@ -1,14 +1,12 @@
 import Foundation
 
-/// Sends signal batches to the Pandalytics ingestion edge function.
+/// Sends signal batches to the Pandalytics ingestion endpoint.
 ///
-/// The edge function (at `/api/v1/ingest`) authenticates the request using
-/// the SDK-supplied ingestion key, rewrites `app_id` on every row from the
-/// server-resolved value, and writes the batch to Postgres. Database
-/// credentials never leave the server — that's the whole point of this
-/// transport existing.
+/// The request is authenticated with the SDK-supplied ingestion key (sent as a
+/// Bearer token). No secret beyond that key ever lives in the client.
 ///
-/// Wire format: NDJSON body, one signal per line with `app_id` merged in.
+/// Wire format: newline-delimited JSON (NDJSON) body, one signal per line with
+/// `app_id` merged in.
 struct PandalyticsTransport: SignalTransport {
 
     private let ingestURL: URL
@@ -78,10 +76,8 @@ struct PandalyticsTransport: SignalTransport {
     }
 }
 
-/// A flattened signal with app_id included — matches the server's `signals`
-/// schema. The edge function will overwrite `app_id` with the
-/// server-authenticated value, but we include the SDK-supplied value so the
-/// on-the-wire format stays identical regardless of transport.
+/// A flattened signal with `app_id` included on every line so the on-the-wire
+/// format stays identical regardless of transport.
 private struct FlatSignal: Encodable {
     let appId: String
     let signal: Signal
