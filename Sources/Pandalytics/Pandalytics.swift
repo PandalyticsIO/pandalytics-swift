@@ -79,7 +79,7 @@ public actor Pandalytics {
     /// - Parameters:
     ///   - appId: Your app's unique ID from the Pandalytics dashboard.
     ///   - ingestionKey: Your app's ingestion key from the Pandalytics dashboard
-    ///     (starts with `panda_sk_`). Required — signals won't be delivered
+    ///     (starts with `panda_pk_`). Required — signals won't be delivered
     ///     without a valid key.
     ///   - options: The options for configuring the SDK.
     nonisolated public static func configure(
