@@ -17,7 +17,7 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/PandalyticsIO/pandalytics-swift.git", from: "0.9.0")
+    .package(url: "https://github.com/PandalyticsIO/pandalytics-swift.git", from: "0.10.0")
 ]
 ```
 
@@ -52,6 +52,26 @@ struct HomeView: View {
             .trackScreen("HomeScreen")
     }
 }
+```
+
+## Build environments
+
+Pandalytics tags every signal with the build's environment so your dashboard can
+separate real users from testers and developers:
+
+- `production` — App Store + direct/notarized distribution (the baseline)
+- `beta` — TestFlight (auto-detected), plus opt-in external betas
+- `debug` — `#if DEBUG` development builds
+
+Detection is automatic. Override only when the OS can't tell the difference —
+e.g. an externally-distributed beta build:
+
+```swift
+Pandalytics.configure(
+    appId: "your-app-id-from-dashboard",
+    ingestionKey: "panda_pk_...",
+    options: PandalyticsOptions(environment: .beta)
+)
 ```
 
 ## What data is collected?

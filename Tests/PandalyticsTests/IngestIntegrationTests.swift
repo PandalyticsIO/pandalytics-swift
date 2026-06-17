@@ -46,7 +46,7 @@ struct IngestIntegrationTests {
         let transport = PandalyticsTransport(
             ingestURL: ingestURL,
             ingestionKey: ingestionKey,
-            options: .init(isDev: true)
+            options: .init(environment: .debug)
         )
 
         let installationHash = "test-installation-\(UUID().uuidString.prefix(8))"
@@ -104,7 +104,7 @@ struct IngestIntegrationTests {
         let transport = PandalyticsTransport(
             ingestURL: ingestURL,
             ingestionKey: "panda_pk_obviously-not-a-real-key",
-            options: .init(isDev: true)
+            options: .init(environment: .debug)
         )
 
         let signal = Signal(

@@ -16,7 +16,8 @@ struct PandalyticsTransport: SignalTransport {
     /// - Parameters:
     ///   - ingestURL: Full URL of the ingestion endpoint (defaults to production).
     ///   - ingestionKey: Per-app secret the developer copies from the dashboard.
-    ///   - isDev: Routes to the dev environment when true.
+    ///   - options: SDK options; `options.environment` is sent so the dashboard
+    ///     can separate production / beta / debug data.
     init(
         ingestURL: URL = PandalyticsConfig.productionIngestURL,
         ingestionKey: String,
@@ -53,11 +54,13 @@ struct PandalyticsTransport: SignalTransport {
         request.httpMethod = "POST"
         request.setValue("application/x-ndjson", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(ingestionKey)", forHTTPHeaderField: "Authorization")
-        if let isDev = options.isDev {
-            request.setValue(isDev ? "true" : "false", forHTTPHeaderField: "X-Pandalytics-Dev")
-        } else {
-            request.setValue("false", forHTTPHeaderField: "X-Pandalytics-Dev")
-        }
+        request.setValue(options.environment.rawValue, forHTTPHeaderField: "X-Pandalytics-Environment")
+        // Back-compat: servers/binaries that only know the legacy boolean. Only
+        // a debug build is "dev"; beta (TestFlight) is real-ish, not dev.
+        request.setValue(
+            options.environment == .debug ? "true" : "false",
+            forHTTPHeaderField: "X-Pandalytics-Dev"
+        )
         request.httpBody = body
         request.timeoutInterval = 10
 
