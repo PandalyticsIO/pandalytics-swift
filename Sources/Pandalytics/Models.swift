@@ -20,7 +20,7 @@ struct Signal: Codable, Sendable {
     let metadata: [String: String]?     // color_scheme, accessibility, custom
 
     enum CodingKeys: String, CodingKey {
-        case signalType = "signal_type"
+        case signalType = "event_name"
         case timestamp
         case screenName = "screen_name"
         case appVersion = "app_version"

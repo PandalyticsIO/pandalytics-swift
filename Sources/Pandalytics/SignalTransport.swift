@@ -5,8 +5,15 @@ enum TransportResult: Sendable {
     /// Batch was accepted by the server (2xx).
     case success
     /// Server rejected the batch due to rate limiting (429) or quota exceeded (402).
-    /// Signals should be dropped — retrying would produce the same result.
+    /// Signals should be dropped — retrying would produce the same result — but
+    /// later batches may well go through.
     case rateLimited
+    /// The server will never take anything from this configuration: the
+    /// ingestion key is wrong (401), the origin is not allowed (403), or the
+    /// app was deleted (410). Signals should be dropped and nothing more sent
+    /// for the rest of the process; the next launch tries again, in case the
+    /// key was fixed.
+    case rejected
     /// Server returned an error (5xx or unexpected status). Retry later.
     case serverError
     /// Network is unreachable or the request timed out. Retry later.
