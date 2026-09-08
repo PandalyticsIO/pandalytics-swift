@@ -212,6 +212,48 @@ struct SignalBufferReliabilityTests {
         #expect(count == 0)
     }
 
+    @Test("Rate limit drops the batch but the buffer keeps sending later ones")
+    func rateLimitKeepsSending() async {
+        let dir = makeTempPersistenceDirectory()
+        defer { cleanupTempDirectory(dir) }
+
+        let transport = FailingTransport(result: .rateLimited)
+        let buffer = SignalBuffer(persistenceDirectory: dir)
+        await buffer.configure(appId: "test", transport: transport)
+
+        await buffer.add(makeTestSignal())
+        await buffer.flush()
+        await buffer.add(makeTestSignal())
+        await buffer.flush()
+
+        #expect(transport.attemptCount == 2)
+    }
+
+    @Test("A rejected key drops the batch and silences the buffer for the process")
+    func rejectedKeySilencesBuffer() async {
+        let dir = makeTempPersistenceDirectory()
+        defer { cleanupTempDirectory(dir) }
+
+        let transport = FailingTransport(result: .rejected)
+        let buffer = SignalBuffer(persistenceDirectory: dir)
+        await buffer.configure(appId: "test", transport: transport)
+
+        await buffer.add(makeTestSignal())
+        await buffer.add(makeTestSignal())
+        await buffer.flush()
+
+        // Dropped, not retried, and not kept on disk either.
+        #expect(await buffer.bufferedCount == 0)
+        #expect(transport.attemptCount == 1)
+
+        // From here on nothing is buffered and nothing is sent: a wrong key
+        // stays wrong, and a deleted app stays deleted, until the next launch.
+        await buffer.add(makeTestSignal())
+        await buffer.flush()
+        #expect(await buffer.bufferedCount == 0)
+        #expect(transport.attemptCount == 1)
+    }
+
     @Test("Transient failure then recovery delivers all signals")
     func transientFailureRecovery() async {
         let dir = makeTempPersistenceDirectory()

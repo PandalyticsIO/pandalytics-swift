@@ -15,6 +15,10 @@ actor SignalBuffer {
     private var transport: (any SignalTransport)?
     private var isSending = false
     private var flushTask: Task<Void, Never>?
+    /// Set once the server says it will never accept this configuration (a
+    /// wrong key, a disallowed origin, a deleted app). From then on nothing is
+    /// buffered or sent for the rest of the process; a relaunch starts over.
+    private var rejected = false
 
     private let flushThreshold = 20
     private let maxSignalCap = 1000
@@ -39,6 +43,7 @@ actor SignalBuffer {
     /// Add a signal to the buffer. Persisted to disk immediately.
     /// Works before `configure()` — signals accumulate until a transport is available.
     func add(_ signal: Signal) {
+        guard !rejected else { return }
         if isSending {
             pendingSignals.append(signal)
             enforcePendingCapacity()
@@ -67,7 +72,7 @@ actor SignalBuffer {
     /// On success, sent signals are removed from memory and disk.
     /// On failure, signals remain in place for retry.
     func flush() async {
-        guard !signals.isEmpty, !isSending else { return }
+        guard !rejected, !signals.isEmpty, !isSending else { return }
         guard let appId, let transport else { return }
 
         let batch = signals
@@ -85,6 +90,15 @@ actor SignalBuffer {
             pendingSignals.removeAll()
             #if DEBUG
             print("[Pandalytics] Rate limited or over quota. Signals dropped.")
+            #endif
+        case .rejected:
+            signals.removeAll()
+            pendingSignals.removeAll()
+            rejected = true
+            flushTask?.cancel()
+            flushTask = nil
+            #if DEBUG
+            print("[Pandalytics] The ingestion key was rejected — wrong key, origin not allowed, or the app was deleted. Signals dropped; nothing more is sent until the next launch.")
             #endif
         case .serverError:
             #if DEBUG

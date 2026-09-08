@@ -62,7 +62,7 @@ struct PrivacyTests {
         // Verify the server-expected field names
         #expect(json.contains("\"app_id\""))
         #expect(json.contains("\"signals\""))
-        #expect(json.contains("\"signal_type\""))
+        #expect(json.contains("\"event_name\""))
         #expect(json.contains("\"installation_hash\""))
         #expect(json.contains("\"build_number\""))
         #expect(json.contains("\"device_model\""))

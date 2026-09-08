@@ -50,7 +50,7 @@ struct SignalBufferTests {
 
         let signals = json["signals"] as! [[String: Any]]
         #expect(signals.count == 1)
-        #expect(signals[0]["signal_type"] as? String == "app_open")
+        #expect(signals[0]["event_name"] as? String == "app_open")
         #expect(signals[0]["screen_name"] as? String == "HomeScreen")
         #expect(signals[0]["os_name"] as? String == "iOS")
         #expect(signals[0]["device_model"] as? String == "iPhone15,2")

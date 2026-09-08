@@ -69,9 +69,10 @@ struct PandalyticsTransport: SignalTransport {
             guard let http = response as? HTTPURLResponse else { return .networkError }
             if (200...299).contains(http.statusCode) { return .success }
             if http.statusCode == 429 || http.statusCode == 402 { return .rateLimited }
-            // 401 means the ingestion key is wrong — retrying won't help.
-            // Treat like rateLimited (drop) so we don't spam the endpoint.
-            if http.statusCode == 401 || http.statusCode == 403 { return .rateLimited }
+            // The key is wrong, the origin is not allowed, or the app is gone:
+            // nothing from this configuration will ever be accepted, so the
+            // buffer drops the batch and goes quiet until the next launch.
+            if http.statusCode == 401 || http.statusCode == 403 || http.statusCode == 410 { return .rejected }
             return .serverError
         } catch {
             return .networkError

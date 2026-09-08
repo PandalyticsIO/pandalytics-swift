@@ -123,16 +123,16 @@ struct IngestIntegrationTests {
 
         let result = await transport.send(batch: batch)
 
-        // A wrong key maps to 401, which our transport translates to `.rateLimited`
-        // (signals dropped, no retry). A `.networkError` means the dev server
+        // A wrong key maps to 401, which our transport translates to `.rejected`
+        // (signals dropped, the buffer goes quiet). A `.networkError` means the dev server
         // isn't running; skip in that case rather than fail the whole suite.
         if result == .networkError {
             print("[integration-test] Skipping forgery test: dev server at \(ingestURL) is unreachable.")
             return
         }
         #expect(
-            result == .rateLimited,
-            "Expected forged key to be rejected (mapped to .rateLimited), got \(result)"
+            result == .rejected,
+            "Expected forged key to be rejected (mapped to .rejected), got \(result)"
         )
     }
 }
