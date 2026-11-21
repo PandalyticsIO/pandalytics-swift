@@ -18,6 +18,11 @@ struct Signal: Codable, Sendable {
     let countryCode: String             // ISO 3166-1 alpha-2; respects user's regional preference override
     let installationHash: String        // SHA-256 of persistent installation UUID
     let metadata: [String: String]?     // color_scheme, accessibility, custom
+    /// The installation's configuration (string pairs), carried by the line
+    /// that reports it. The server keeps the latest value per installation
+    /// and key, so retention can be read by configuration. Absent on lines
+    /// that report none.
+    var config: [String: String]? = nil
 
     enum CodingKeys: String, CodingKey {
         case signalType = "signal_type"
@@ -35,6 +40,7 @@ struct Signal: Codable, Sendable {
         case countryCode = "country_code"
         case installationHash = "installation_hash"
         case metadata
+        case config
     }
 }
 

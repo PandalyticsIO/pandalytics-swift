@@ -54,6 +54,31 @@ struct HomeView: View {
 }
 ```
 
+## Installation configuration
+
+"Is retention higher with smart sync on?" is answered from what each
+installation has set **today**. Report it with `trackConfig`, as string pairs:
+
+```swift
+// Once per launch, after configure()…
+Pandalytics.trackConfig([
+    "smart_sync": settings.smartSync ? "on" : "off",
+    "theme": settings.theme.rawValue,
+])
+
+// …and whenever a setting changes. Only the changed pair is fine:
+Pandalytics.trackConfig(["smart_sync": "off"])
+```
+
+- Pandalytics keeps the **latest value per installation and key**. Keys you
+  leave out keep their last value; an empty string (`""`) clears a key.
+- Each call is sent as a `config_change` signal whose line carries the pairs in
+  a `config` object. A call identical to the previous one in the same launch is
+  not sent again.
+- Limits (enforced by the server, anything over is dropped): 50 pairs per call,
+  keys up to 64 and values up to 256 characters. Configuration is a handful of
+  switches, not a document — and never personal data.
+
 ## Build environments
 
 Pandalytics tags every signal with the build's environment so your dashboard can
@@ -90,6 +115,7 @@ Pandalytics.configure(
 **You provide:**
 - Screen name (via `.trackScreen()`)
 - Custom signal types and metadata
+- Installation configuration (via `trackConfig()`)
 
 ## Reliability model
 
