@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// We're using this struct to store attributes of signals that are essentially
 /// always the same for a given installation, so we can avoid recomputing them on

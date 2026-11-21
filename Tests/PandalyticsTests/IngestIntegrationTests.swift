@@ -91,6 +91,62 @@ struct IngestIntegrationTests {
         )
     }
 
+    /// Sends one installation's configuration the way `trackConfig` does — a
+    /// `config_change` line carrying `config` — after an `app_open` backdated
+    /// by `PANDALYTICS_CONFIG_DAYS_AGO` days (default 0), so a retention read
+    /// by configuration has something old enough to count (#186).
+    ///
+    ///   PANDALYTICS_CONFIG_KEY    — default `e2e_config`
+    ///   PANDALYTICS_CONFIG_VALUE  — default `swift`
+    ///   PANDALYTICS_ENVIRONMENT   — default `debug`
+    @Test("Installation config is delivered via the ingest endpoint")
+    func configDeliveredViaEndpoint() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let appId = env["PANDALYTICS_APP_ID"],
+              let ingestionKey = env["PANDALYTICS_INGESTION_KEY"] else {
+            print("[integration-test] Skipping: PANDALYTICS_APP_ID and PANDALYTICS_INGESTION_KEY must be set.")
+            return
+        }
+        let ingestURL = URL(
+            string: env["PANDALYTICS_INGEST_URL"] ?? "http://localhost:3000/api/v1/ingest"
+        )!
+        let transport = PandalyticsTransport(
+            ingestURL: ingestURL,
+            ingestionKey: ingestionKey,
+            options: .init(
+                environment: PandalyticsEnvironment(rawValue: env["PANDALYTICS_ENVIRONMENT"] ?? "debug") ?? .debug
+            )
+        )
+
+        let key = env["PANDALYTICS_CONFIG_KEY"] ?? "e2e_config"
+        let value = env["PANDALYTICS_CONFIG_VALUE"] ?? "swift"
+        let daysAgo = Double(env["PANDALYTICS_CONFIG_DAYS_AGO"] ?? "0") ?? 0
+        let installationHash = "swift-e2e-\(UUID().uuidString.prefix(8))"
+        let iso = ISO8601DateFormatter()
+        let opened = iso.string(from: Date().addingTimeInterval(-daysAgo * 86_400))
+        let now = iso.string(from: Date())
+
+        func line(_ type: String, at timestamp: String) -> Signal {
+            Signal(
+                signalType: type, timestamp: timestamp, screenName: nil,
+                appVersion: "1.0.0", buildNumber: "1",
+                osName: "iOS", osVersion: "18.0",
+                deviceModel: "iPhone15,2", deviceType: "phone",
+                locale: "en_US", language: "en", region: "UTC", countryCode: "US",
+                installationHash: installationHash,
+                metadata: ["source": "swift-integration-test"]
+            )
+        }
+        var change = line("config_change", at: now)
+        change.config = [key: value]
+
+        let result = await transport.send(
+            batch: SignalBatch(appId: appId, signals: [line("app_open", at: opened), change])
+        )
+        print("[integration-test] config \(key)=\(value) for \(installationHash): \(result)")
+        #expect(result == .success, "Expected success but got \(result).")
+    }
+
     @Test("Forged ingestion key is rejected by the endpoint")
     func forgedKeyRejected() async throws {
         let env = ProcessInfo.processInfo.environment

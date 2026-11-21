@@ -124,8 +124,20 @@ public actor Pandalytics {
         shared.continuation.yield(.signal(type: "screen_view", screenName: name, metadata: nil))
     }
 
-    /// Track a configuration snapshot. Only sends if the config has changed since the last call.
-    /// Config is sent as a signal with type "config_change" and the config pairs in metadata.
+    /// Report the installation's configuration — the settings it has TODAY,
+    /// as string pairs (e.g. `["smart_sync": "on", "theme": "dark"]`).
+    ///
+    /// Pandalytics keeps the latest value per installation and key, which is
+    /// what "is retention higher with smart sync on?" is answered from. Call it
+    /// once per launch and again whenever a setting changes; pass all pairs or
+    /// only the ones that changed — keys you leave out keep their last value.
+    /// An empty string clears a key. Sent as a `config_change` signal carrying
+    /// the pairs; a call identical to the previous one in this launch is not
+    /// sent again.
+    ///
+    /// Configuration is a handful of switches, not a document: the server keeps
+    /// up to 50 pairs per call, keys up to 64 and values up to 256 characters,
+    /// and drops what is over. Never put personal data in a value.
     nonisolated public static func trackConfig(_ config: [String: String]) {
         shared.continuation.yield(.trackConfig(config))
     }
@@ -174,15 +186,21 @@ public actor Pandalytics {
     }
 
     @discardableResult
-    private func handleSignal(type: String, screenName: String?, metadata: [String: String]?) async -> Bool {
+    private func handleSignal(
+        type: String,
+        screenName: String?,
+        metadata: [String: String]?,
+        config: [String: String]? = nil
+    ) async -> Bool {
         guard Self.isTrackingEnabled else { return false }
 
-        let signal = await makeSignal(
+        var signal = await makeSignal(
             type: type,
             screenName: screenName,
             metadata: metadata,
             timestamp: ISO8601DateFormatter().string(from: Date())
         )
+        if let config, !config.isEmpty { signal.config = config }
         await signalBuffer.add(signal)
         return true
     }
@@ -283,7 +301,7 @@ public actor Pandalytics {
         guard hash != lastConfigHash else { return }
         lastConfigHash = hash
 
-        _ = await handleSignal(type: "config_change", screenName: nil, metadata: config)
+        _ = await handleSignal(type: "config_change", screenName: nil, metadata: config, config: config)
     }
 
     // MARK: - Device info (no PII)
